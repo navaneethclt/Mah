@@ -22,7 +22,7 @@ for date in dates:
         if not(date.hour==11 and date.minute>=30):
             if not(date.hour==15 and date.minute<=7):
                working_time.append(date)
-working_time = pd.to_datetime(time) 
+working_time = pd.to_datetime(working_time) 
 
 xls = pd.ExcelFile('nov.xlsx',index = False)
 #%%
