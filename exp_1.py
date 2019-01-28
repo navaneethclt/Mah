@@ -1,11 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Created on Sat Jan  5 15:34:36 2019
+Created on Wed Jan 23 13:14:51 2019
 
-@author: Lab
+@author: SENAIIITM
 """
-
-
 
 import pandas as pd
 import itertools
@@ -45,6 +43,7 @@ AprilData = AprilData.reindex(index = AprilData.index[::-1])
 AprilData.reset_index(drop=True, inplace=True)
 AprilData = AprilData.dropna(axis = 1);
 AprilData = AprilData[AprilData['Parameter Value']< 30000]
+AprilData = AprilData[AprilData['Machine Parameter']!= 'SPRAY_PUMP_MOTOR__A_TEMPERATURE']
 AprilData['Machine Parameter'] = AprilData['Machine Parameter'].str.replace(" ","_")
 SensorNames = AprilData.drop_duplicates('Machine Parameter');
 
@@ -52,17 +51,40 @@ SensorNames = AprilData.drop_duplicates('Machine Parameter');
 #params = SensorsNames.groupby(['Machine Parameter']).groups.keys();
 #AprilData[AprilData['Machine Parameter'] == 'TROLLY MOTOR CURRENT']
 params = SensorNames.groupby(['Machine Parameter']).groups.keys();
+AprilData['Inserted Date'] = AprilData['Inserted Date'].dt.round('1s')
 #AprilData[AprilData['Machine Parameter'] == 'TROLLY MOTOR CURRENT']
 
 companies = list(params)
 i = 1
 for c in companies:
-     #exec('{} = pd.DataFrame()'.format(c))
-     
-     a = 'df' + str(i);
-     exec(a + "= AprilData[AprilData['Machine Parameter'] == c]");
-     i = i + 1;
-     
+         a = 'df' + str(i)
+         b = 'temp'+str(i)
+    
+         exec(a + "= AprilData[AprilData['Machine Parameter'] == c]")
+         exec(a + " = "+a+".groupby('Inserted Date',as_index =True)['Parameter Value'].mean()")
+         #exec(b+"="+a+".resample('7s',on='Inserted Date').last()")
+        
+#forward filling is questionable since we dont want data preceding a failure to be propagated throughout the dataset
+         #exec(b+".fillna(method='ffill',inplace=True)") 
+         i = i + 1
+timeindex = AprilData['Inserted Date'].drop_duplicates()
+timeindex.sort_values(ascending=True, kind='quicksort', na_position='last', inplace=True)
+working_time = []
+
+for date in timeindex:
+    if date.hour>=8 and (date.hour<=16 and date.minute<=30):
+        if not(date.hour==11 and date.minute>=30):
+            if not(date.hour==15 and date.minute<=7):
+               working_time.append(date)
+AprilDataRounded = pd.DataFrame(index = working_time , columns = companies)
+AprilDataRounded['Inserted_Date'] = working_time
+AprilDataAll = pd.DataFrame(index = timeindex , columns = companies)
+AprilDataAll['Inserted_Date'] = list(timeindex)
+for i in range(len(companies)):
+    b = 'df' + str(i+1)
+    sensor = companies[i]
+    exec("AprilDataRounded['"+sensor+"']="+b+"")
+    exec("AprilDataAll['"+sensor+"']="+b+"")
 #%%
 mxls = pd.ExcelFile('master.xlsx',index = False);
 master = mxls.parse('Sheet1',index =False, na_values=['NA']);
@@ -78,18 +100,20 @@ master = mxls.parse('Sheet1',index =False, na_values=['NA']);
 #    AprilDataCBM.loc[index,'Scale'] =  master.loc[master.Machine_Parameter==AprilDataCBM.loc[index,'Machine Parameter'],'Scale_Denominator'].iloc[0]
 #    print(index)
 #%%
-i = 0
-freq2 = {}
-for index,value in df2.iterrows():
-   if (index!=2):
-    pres = df2.loc[index, 'Inserted Date']
-    freq2[i] = (pres - prev).total_seconds()
+
+ i = 0
+ freq12 = {}
+ for index,value in df12.iterrows():
+   if (index!=1):
+    pres = df12.loc[index, 'Inserted Date']
+    freq12[i] = (pres - prev).total_seconds()
     
     prev = pres
     i = i+1
    else : 
-       prev = df2.loc[index, 'Inserted Date']
+       prev = df12.loc[index, 'Inserted Date']
        i = i+1
+
 #%%
 DataImpcols = AprilData['Machine Parameter'].drop_duplicates() 
 DataImp = pd.DataFrame(columns = DataImpcols)
@@ -97,8 +121,8 @@ DataImp.insert(0,'Inserted_Date', AprilData['Inserted Date'])
 for value in DataImpcols:
     DataImp[value] = AprilData['Parameter Value'].where(AprilData['Machine Parameter'] == value)
 #both ffill and bfill are questionable since they will wrongly propagate error
-DataImp.fillna(method = 'ffill',inplace = True)
-DataImp.fillna(method = 'bfill',inplace = True)
+#DataImp.fillna(method = 'ffill',inplace = True)
+#DataImp.fillna(method = 'bfill',inplace = True)
 DataImp.drop(['SPRAY_PUMP_MOTOR__A_TEMPERATURE'],inplace = True,axis = 1)
 #%%
 xlsal = pd.ExcelFile('Crankcase Cleaning Machine- Alarm Data2018.xlsx',index = False);
@@ -106,11 +130,12 @@ xlsalcls = pd.ExcelFile('Alarmsignal_classification.xlsx',index = False);
 #%%
 AlarmData = xlsal.parse('Alarm data', index =False, na_values=['NA']);
 AlarmClass = xlsalcls.parse('Fault Categories-CCCM (2)', index =False, na_values=['NA']);
+AlarmClass.Priority = AlarmClass.Priority.str.capitalize()
 AlarmNames = AlarmData.drop_duplicates('Alarm_Name')
 AlarmGroup = AlarmData.groupby('Alarm_Name',group_keys = True)
 AlarmClassList = AlarmClass.Alarm_Name
 AlarmCount = AlarmData.groupby(['Alarm_Name']).size().reset_index(name='count')
-
+AlarmPriorityGroup= AlarmData.groupby('Priority',group_keys = True)                                     
 for index,value in AlarmData.iterrows():
     if AlarmData.loc[index,'Alarm_Name'] in set(AlarmClassList):
         AlarmData.loc[index,'Priority'] =  AlarmClass.loc[AlarmClass.Alarm_Name==AlarmData.loc[index,'Alarm_Name'],'Priority'].iloc[0]
@@ -118,18 +143,34 @@ for index,value in AlarmData.iterrows():
     if AlarmData.loc[index,'Alarm_Name'] in set(AlarmClassList):
         AlarmData.loc[index,'Alarm Source'] =  AlarmClass.loc[AlarmClass.Alarm_Name==AlarmData.loc[index,'Alarm_Name'],'Alarm Source'].iloc[0]
 
-AlarmDataMachineGenerated = AlarmData[AlarmData['Alarm Source']!='Triggered Manually']
+AlarmData['T/F'] = 'F'
+for key,group in AlarmPriorityGroup:
+    if(key == 'Minor stoppage'):
+        mask = (group['Down_Time'] <= datetime.time(minute = 4)) & (group['Down_Time'] >= datetime.time(minute =1))
+        mask = mask[mask == True]
+        AlarmData.loc[mask.index,'T/F'] = 'T'
+    if(key == 'Breakdown'):
+        mask = (group['Down_Time'] <= datetime.time(minute = 20)) & (group['Down_Time'] >= datetime.time(minute = 1))
+        mask = mask[mask == True]
+        AlarmData.loc[mask.index,'T/F'] = 'T'
+        
+        
+AlarmDataMachineGenerated = AlarmData[(AlarmData['Alarm Source']!='Triggered Manually') & (AlarmData['Priority']!='Chamber opened for repair/observation')]
+AlarmDataMachineGeneratedTrueAlarms = AlarmDataMachineGenerated[AlarmDataMachineGenerated['T/F'] == 'T']
 AlarmGroupMachineGenerated = AlarmDataMachineGenerated.groupby('Alarm_Name',group_keys = True)
 AlarmDataMachineGenerated.fillna('NA', inplace = True)
 AlarmNames = AlarmData.drop_duplicates('Alarm_Name')
-AlarmDataMachineGenerated.Priority = AlarmDataMachineGenerated.Priority.str.capitalize()
+
 
 categories = np.unique(AlarmDataMachineGenerated['Priority'])
 colors = cm.rainbow(np.linspace(0, 1, len(categories)))
 colordict = dict(zip(categories, colors))  
 AlarmDataMachineGenerated["Color"] = AlarmDataMachineGenerated['Priority'].apply(lambda x: colordict[x])
+
 #%%
 
+
+#%%
  
 for index,value in df1.iterrows():
  plt.pyplot.scatter(df1.loc[index,'Inserted Date'],df1.loc[index,'Parameter Value'],s = 1,color = 'red');
@@ -139,9 +180,11 @@ def subtime(x):
 #%%
 Timelist = []
 
+AlarmDataTrueAlarms = AlarmData[AlarmData['T/F'] == 'T']
+
 i = 0
-for index,value in AlarmData.iterrows():
-    Timelist.append((subtime(AlarmData.loc[index,'Alarm_Start_Time']),subtime(AlarmData.loc[index,'Alarm_Stop_Time'])))
+for index,value in AlarmDataTrueAlarms.iterrows():
+    Timelist.append((subtime(AlarmDataTrueAlarms.loc[index,'Alarm_Start_Time']),subtime(AlarmDataTrueAlarms.loc[index,'Alarm_Stop_Time'])))
 sorted_by_lower_bound = sorted(Timelist, key=lambda tup: tup[0])
 merged = []
 
@@ -165,17 +208,27 @@ AlarmTimeSec['Decision'] = (AlarmTimeSec.index + 1) % 2
 A1 = interp1d(AlarmTimeSec['TimeSec'],AlarmTimeSec['Decision'],kind = 'previous',fill_value = 0)
 
 
-DataImp['Alarm'] = DataImp.Inserted_Date.apply(subtime)
-DataImp['Alarm'] = DataImp.Alarm.apply(A1)
+AprilDataRounded['Alarm'] = AprilDataRounded.Inserted_Date.apply(subtime)
+AprilDataRounded['Alarm'] = AprilDataRounded.Alarm.apply(A1)
+
+AprilDataAll['Alarm'] = AprilDataAll.Inserted_Date.apply(subtime)
+AprilDataAll['Alarm'] = AprilDataAll.Alarm.apply(A1)
 #%%
 
-DataImp['Failure'] = 0
-for index,value in AlarmDataMachineGenerated.iterrows():
-    mask = DataImp.Inserted_Date.between(AlarmDataMachineGenerated.loc[index,'Alarm_Start_Time'] - datetime.timedelta(minutes = 60),\
-                                         AlarmDataMachineGenerated.loc[index,'Alarm_Start_Time'],inclusive = True)
-    DataImp.loc[mask,'Failure'] = 1
+AprilDataRounded['Failure'] = 0
+AprilDataAll['Failure'] = 0
+for index,value in AlarmDataTrueAlarms.iterrows():
+    mask = AprilDataRounded.Inserted_Date.between(AlarmDataTrueAlarms.loc[index,'Alarm_Start_Time'] - datetime.timedelta(minutes = 10),\
+                                         AlarmDataTrueAlarms.loc[index,'Alarm_Start_Time'],inclusive = True)
+    AprilDataRounded.loc[mask,'Failure'] = 1
+    
+for index,value in AlarmDataTrueAlarms.iterrows():
+    mask = AprilDataAll.Inserted_Date.between(AlarmDataTrueAlarms.loc[index,'Alarm_Start_Time'] - datetime.timedelta(minutes = 10),\
+                                         AlarmDataTrueAlarms.loc[index,'Alarm_Start_Time'],inclusive = True)
+    AprilDataAll.loc[mask,'Failure'] = 1
 
-Dataset = DataImp[DataImp.Alarm == 0]
+Dataset1 = AprilDataRounded[AprilDataRounded.Alarm == 0]
+Dataset2 = AprilDataAll[AprilDataAll.Alarm == 0]
 features = list(set(DataImp.columns) - set(['Inserted_Date','Alarm','Failure']))
 #%%
 # Separating out the features
@@ -330,29 +383,3 @@ rf_root_mean_square_error_best=(mean_squared_error(test_y,
                                         predictions_best))**0.5
                                                   
 print(rf_root_mean_square_error_best)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
