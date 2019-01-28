@@ -15,18 +15,19 @@ import datetime
 import numpy as np
 import matplotlib.cm as cm
 from scipy.interpolate import interp1d
+import math 
 
 
 
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import mean_squared_error
-
+from sklearn.metrics import f1_score , confusion_matrix , precision_score , recall_score 
+from sklearn.impute import SimpleImputer 
 # importing library for getting parameters
 from pprint import pprint
 
 # importing the library for randomforest 
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import RandomForestClassifier
 
 #from sklearn.tree import export_graphviz
 #from pprint import pprint
@@ -115,15 +116,15 @@ master = mxls.parse('Sheet1',index =False, na_values=['NA']);
        i = i+1
 
 #%%
-DataImpcols = AprilData['Machine Parameter'].drop_duplicates() 
-DataImp = pd.DataFrame(columns = DataImpcols)
-DataImp.insert(0,'Inserted_Date', AprilData['Inserted Date'])
-for value in DataImpcols:
-    DataImp[value] = AprilData['Parameter Value'].where(AprilData['Machine Parameter'] == value)
-#both ffill and bfill are questionable since they will wrongly propagate error
-#DataImp.fillna(method = 'ffill',inplace = True)
-#DataImp.fillna(method = 'bfill',inplace = True)
-DataImp.drop(['SPRAY_PUMP_MOTOR__A_TEMPERATURE'],inplace = True,axis = 1)
+#DataImpcols = AprilData['Machine Parameter'].drop_duplicates() 
+#DataImp = pd.DataFrame(columns = DataImpcols)
+#DataImp.insert(0,'Inserted_Date', AprilData['Inserted Date'])
+#for value in DataImpcols:
+#    DataImp[value] = AprilData['Parameter Value'].where(AprilData['Machine Parameter'] == value)
+##both ffill and bfill are questionable since they will wrongly propagate error
+##DataImp.fillna(method = 'ffill',inplace = True)
+##DataImp.fillna(method = 'bfill',inplace = True)
+#DataImp.drop(['SPRAY_PUMP_MOTOR__A_TEMPERATURE'],inplace = True,axis = 1)
 #%%
 xlsal = pd.ExcelFile('Crankcase Cleaning Machine- Alarm Data2018.xlsx',index = False);
 xlsalcls = pd.ExcelFile('Alarmsignal_classification.xlsx',index = False);
@@ -227,48 +228,47 @@ for index,value in AlarmDataTrueAlarms.iterrows():
                                          AlarmDataTrueAlarms.loc[index,'Alarm_Start_Time'],inclusive = True)
     AprilDataAll.loc[mask,'Failure'] = 1
 
-Dataset1 = AprilDataRounded[AprilDataRounded.Alarm == 0]
-Dataset2 = AprilDataAll[AprilDataAll.Alarm == 0]
-features = list(set(DataImp.columns) - set(['Inserted_Date','Alarm','Failure']))
+Dataset1 = AprilDataRounded[AprilDataRounded.Alarm == 0] #off hours excluded 
+Dataset2 = AprilDataAll[AprilDataAll.Alarm == 0]  #all timestamps recorded by the sensors
+features = list(set(AprilDataRounded.columns) - set(['Inserted_Date','Alarm','Failure']))
 #%%
-# Separating out the features
-x = Dataset.loc[:, features].values
-y = Dataset.loc[:,'Failure'].values
+# Separating out th fe features
+x = Dataset1.loc[:,features].values
+y = Dataset1.loc[:,'Failure'].values
 train_x, test_x, train_y, test_y = train_test_split( x, y, test_size=0.3, random_state=1)
 
 ##################base line model####################################
-
-base_pred= 1
-# 
-base_pred=np.repeat(base_pred, len(test_y))
-
-base_root_mean_square_error=(mean_squared_error(test_y, base_pred))**0.5
-
-
-
 ############################################################
 
 scaler = StandardScaler()# Fit on training set only.
 scaler.fit(train_x)
+
 # Apply transform to both the training set and the test set.
 train_x = scaler.transform(train_x)
 test_x = scaler.transform(test_x)
+train_x[np.isnan(train_x)]=10000
+test_x[np.isnan(test_x)]=10000
 
 ###########################Random forest#####################################
 
 # Building a Random forest model
 
-rf = RandomForestRegressor(n_estimators = 100,random_state=1)
+rf = RandomForestClassifier(n_estimators = 100,random_state=1,oob_score=True,n_jobs=-1)
 
-rf.fit(train_x, train_y.ravel());
+rffitted = rf.fit(train_x, train_y.ravel())
+print(rffitted)
 
 # Use the forest's predict method on the test data
 predictions_rf = rf.predict(test_x)
-
+print(predictions_rf)
+print(f1_score(test_y,predictions_rf))
+print(precision_score(test_y,predictions_rf))
+print(recall_score(test_y,predictions_rf))
+#%%
 # Calculate the absolute errors
-rf_root_mean_square_error=(mean_squared_error(test_y, predictions_rf))**0.5
-print(rf_root_mean_square_error)
 
+#rf_root_mean_square_error=(mean_squared_error(test_y, predictions_rf))**0.5
+#print(rf_root_mean_square_error)
 #
 #
 
@@ -294,92 +294,92 @@ print(feature_importances)
 [print('Variable: {:20} Importance: {}'.format(*pair))for pair in feature_importances];
 #
 #
-rf_most_important = RandomForestRegressor(n_estimators=100, random_state=1)
+#rf_most_important = RandomForestRegressor(n_estimators=100, random_state=1)
+##
 #
-
-important_features_positions=[]
-
-##  Select top 5 important features
-for i in range(5):
-    important_features=feature_importances[i][0]
-    index=features.index(important_features)
-    important_features_positions.append(index)
-##selecting important features from train data    
-train_x_important=train_x[:,important_features_positions] 
-##selecting important features from train data
-test_x_important=test_x[:,important_features_positions] 
-rf_most_important.fit(train_x_important, train_y.ravel());
-predictions_rf_most_important = rf_most_important.predict(test_x_important)
+#important_features_positions=[]
+#
+###  Select top 5 important features
+#for i in range(5):
+#    important_features=feature_importances[i][0]
+#    index=features.index(important_features)
+#    important_features_positions.append(index)
+###selecting important features from train data    
+#train_x_important=train_x[:,important_features_positions] 
+###selecting important features from train data
+#test_x_important=test_x[:,important_features_positions] 
+#rf_most_important.fit(train_x_important, train_y.ravel());
+#predictions_rf_most_important = rf_most_important.predict(test_x_important)
 
 ##
 ##
 
 ## Calculate the absolute errors
-rf_root_mean_square_error_most_imp=(mean_squared_error(test_y, 
-                                predictions_rf_most_important))**0.5
-print(rf_root_mean_square_error_most_imp)
+#rf_root_mean_square_error_most_imp=(mean_squared_error(test_y, 
+#                                predictions_rf_most_important))**0.5
+#print(rf_root_mean_square_error_most_imp)
 
 #
 #%%
-"""Hyper parameter tuning"""
-
-## Look at parameters used by our current forest
-print('Parameters currently in use:\n')
-pprint(rf.get_params())
-
-## Number of trees in random forest
-n_estimators = [int(x) for x in np.linspace(start = 50, stop = 400,num = 10)]
-print(n_estimators)
-
-## Number of features to consider at every split
-max_features = ['auto', 'sqrt']
-
-## Maximum number of levels in tree
-max_depth = [int(x) for x in np.linspace(10, 110, num = 11)]
-max_depth.append(None)
-
-## Minimum number of samples required to split a node
-min_samples_split = [2, 5, 10]
-
-## Minimum number of samples required at each leaf node
-min_samples_leaf = [1, 2, 4]
-
-## Method of selecting samples for training each tree
-bootstrap = [True, False]
-
-## Create the random grid
-random_grid = {'n_estimators': n_estimators,
-               'max_features': max_features,
-               'max_depth': max_depth,
-               'min_samples_split': min_samples_split,
-               'min_samples_leaf': min_samples_leaf,
-               'bootstrap': bootstrap}
-
-pprint(random_grid)
-
-## Use the random grid to search for best hyperparameters
-## First create the base model to tune
-rf_for_tuning = RandomForestRegressor()
-
-## Random search of parameters, using 3 fold cross validation, 
-## search across 100 different combinations, and use all available cores
-rf_random = RandomizedSearchCV(estimator = rf_for_tuning, 
-                            param_distributions = random_grid, 
-                            n_iter = 100, cv = 3, verbose=2, random_state=1)
-
-
-## Fit the random search model
-rf_random.fit(train_x, train_y.ravel())
-print(rf_random.best_params_)
-
-## finding the best model
-rf_model_best = rf_random.best_estimator_
-print(rf_model_best)
-
-# predicting with the test data on best model
-predictions_best = rf_model_best.predict(test_x)
-
-rf_root_mean_square_error_best=(mean_squared_error(test_y,
-                                        predictions_best))**0.5
-                                                  
-print(rf_root_mean_square_error_best)
+#"""Hyper parameter tuning"""
+#
+### Look at parameters used by our current forest
+#print('Parameters currently in use:\n')
+#pprint(rf.get_params())
+#
+### Number of trees in random forest
+#n_estimators = [int(x) for x in np.linspace(start = 50, stop = 400,num = 10)]
+#print(n_estimators)
+#
+### Number of features to consider at every split
+#max_features = ['auto', 'sqrt']
+#
+### Maximum number of levels in tree
+#max_depth = [int(x) for x in np.linspace(10, 110, num = 11)]
+#max_depth.append(None)
+#
+### Minimum number of samples required to split a node
+#min_samples_split = [2, 5, 10]
+#
+### Minimum number of samples required at each leaf node
+#min_samples_leaf = [1, 2, 4]
+#
+### Method of selecting samples for training each tree
+#bootstrap = [True, False]
+#
+### Create the random grid
+#random_grid = {'n_estimators': n_estimators,
+#               'max_features': max_features,
+#               'max_depth': max_depth,
+#               'min_samples_split': min_samples_split,
+#               'min_samples_leaf': min_samples_leaf,
+#               'bootstrap': bootstrap}
+#
+#pprint(random_grid)
+#
+### Use the random grid to search for best hyperparameters
+### First create the base model to tune
+#rf_for_tuning = RandomForestRegressor()
+#
+### Random search of parameters, using 3 fold cross validation, 
+### search across 100 different combinations, and use all available cores
+#rf_random = RandomizedSearchCV(estimator = rf_for_tuning, 
+#                            param_distributions = random_grid, 
+#                            n_iter = 100, cv = 3, verbose=2, random_state=1)
+#
+#
+### Fit the random search model
+#rf_random.fit(train_x, train_y.ravel())
+#print(rf_random.best_params_)
+#
+### finding the best model
+#rf_model_best = rf_random.best_estimator_
+#print(rf_model_best)
+#
+## predicting with the test data on best model
+#predictions_best = rf_model_best.predict(test_x)
+#
+#rf_root_mean_square_error_best=(mean_squared_error(test_y,
+#                                        predictions_best))**0.5
+#                                                  
+#print(rf_root_mean_square_error_best)
