@@ -59,17 +59,21 @@ companies = list(params)
 i = 1
 for c in companies:
          a = 'df' + str(i)
+         d = 'dfs'+ str(i)
          b = 'temp'+str(i)
     
          exec(a + "= AprilData[AprilData['Machine Parameter'] == c]")
+         exec(d + "= AprilData[AprilData['Machine Parameter'] == c]")
          exec(a + " = "+a+".groupby('Inserted Date',as_index =True)['Parameter Value'].mean()")
          i = i + 1
 i = 1
 for c in companies:
          a = 'dfm' + str(i)
          b = 'tempm'+str(i)
+         d = 'dfsm'+ str(i)
     
          exec(a + "= AprilDataM[AprilDataM['Machine Parameter'] == c]")
+         exec(d + "= AprilData[AprilData['Machine Parameter'] == c]")
          exec(a + " = "+a+".groupby('Inserted Date',as_index =True)['Parameter Value'].mean()")
          i = i + 1
          #exec(b+"="+a+".resample('7s',on='Inserted Date').last()")
@@ -156,6 +160,7 @@ master = mxls.parse('Sheet1',index =False, na_values=['NA']);
 #%%
 xlsal = pd.ExcelFile('Crankcase Cleaning Machine- Alarm Data2018.xlsx',index = False);
 xlsalcls = pd.ExcelFile('Alarmsignal_classification.xlsx',index = False);
+xlscat = pd.ExcelFile('Crankcase CM Data-30.01.2019.xlsx',index = False);
 #%%
 AlarmData = xlsal.parse('Alarm data', index =False, na_values=['NA']);
 AlarmClass = xlsalcls.parse('Fault Categories-CCCM (2)', index =False, na_values=['NA']);
@@ -163,11 +168,18 @@ AlarmClass.Priority = AlarmClass.Priority.str.capitalize()
 AlarmNames = AlarmData.drop_duplicates('Alarm_Name')
 AlarmGroup = AlarmData.groupby('Alarm_Name',group_keys = True)
 AlarmClassList = AlarmClass.Alarm_Name
+
 AlarmCount = AlarmData.groupby(['Alarm_Name']).size().reset_index(name='count')
-                                   
+AlarmCat = xlscat.parse('Fault Categories-CCCM', skiprows = 2,index =False, na_values=['NA']);
+AlarmCat.dropna(inplace = True,axis = 1)
+AlarmCatList = AlarmCat .Alarm_Name
+for index,value in AlarmData.iterrows():
+    if AlarmData.loc[index,'Alarm_Name'] in set(AlarmCatList):
+        AlarmData.loc[index,'Chamber'] =  AlarmCat.loc[AlarmCat.Alarm_Name==AlarmData.loc[index,'Alarm_Name'],'Chamber'].iloc[0]                                   
 for index,value in AlarmData.iterrows():
     if AlarmData.loc[index,'Alarm_Name'] in set(AlarmClassList):
         AlarmData.loc[index,'Priority'] =  AlarmClass.loc[AlarmClass.Alarm_Name==AlarmData.loc[index,'Alarm_Name'],'Priority'].iloc[0]
+    
 for index,value in AlarmData.iterrows():
     if AlarmData.loc[index,'Alarm_Name'] in set(AlarmClassList):
         AlarmData.loc[index,'Alarm Source'] =  AlarmClass.loc[AlarmClass.Alarm_Name==AlarmData.loc[index,'Alarm_Name'],'Alarm Source'].iloc[0]
@@ -176,11 +188,11 @@ AlarmData['T/F'] = 'F'
 AlarmPriorityGroup= AlarmData.groupby('Priority',group_keys = True)   
 for key,group in AlarmPriorityGroup:
     if(key == 'Minor stoppage'):
-        mask = (group['Down_Time'] <= datetime.time(minute = 4)) & (group['Down_Time'] >= datetime.time(minute =1))
+        mask = (group['Down_Time'] <= datetime.time(minute = 30)) & (group['Down_Time'] >= datetime.time(minute =1))
         mask = mask[mask == True]
         AlarmData.loc[mask.index,'T/F'] = 'T'
     if(key == 'Breakdown'):
-        mask = (group['Down_Time'] <= datetime.time(minute = 20)) & (group['Down_Time'] >= datetime.time(minute = 1))
+        mask = (group['Down_Time'] <= datetime.time(minute = 30)) & (group['Down_Time'] >= datetime.time(minute = 1))
         mask = mask[mask == True]
         AlarmData.loc[mask.index,'T/F'] = 'T'
         
@@ -198,15 +210,73 @@ colordict = dict(zip(categories, colors))
 AlarmDataMachineGenerated["Color"] = AlarmDataMachineGenerated['Priority'].apply(lambda x: colordict[x])
 
 #%%
-
-
+cxls = pd.ExcelFile('MayCycle.xlsx',index = False);
+cstartch1 = cxls.parse('Sheet1',index =False, na_values=['NA']);
+cstopch1 = cxls.parse('Sheet2',index =False, na_values=['NA']);
+cstartch2 = cxls.parse('Sheet3',index =False, na_values=['NA']);
+cstopch2 = cxls.parse('Sheet4',index =False, na_values=['NA']);
 #%%
- 
-for index,value in df1.iterrows():
- plt.pyplot.scatter(df1.loc[index,'Inserted Date'],df1.loc[index,'Parameter Value'],s = 1,color = 'red');
+cstartch1['stat'] = 1
+cstopch1['stat'] = 0
+cstartch2['stat'] = 1
+cstopch2['stat'] = 0
+cstopch1 = cstopch1[cstopch1['Inserted_Date'] <= '2018-05-30 18:13:19.903000']
+cdatach1 = pd.DataFrame()
+cdatach2 = pd.DataFrame()
+cdatach1 = cstartch1.append(cstopch1)
+cdatach2 = cstartch2.append(cstopch2)
+cdatach1.sort_values('Inserted_Date',inplace = True)
+cdatach1.reset_index(drop = True,inplace = True)
+cdatach2.sort_values('Inserted_Date',inplace = True)
+cdatach2.reset_index(drop = True,inplace = True)
+#%%
+#cdata = cdata[cdata['Inserted_Date'] <= '2018-05-05 18:13:19.903000']
+xmin = cdatach1.loc[0,'Inserted_Date']
+ymin = cdatach1.loc[0,'stat']
+cycletimech1 = []
 fig,ax = plt.pyplot.subplots()
-for index,value in AlarmDataTrueAlarms.iterrows():
-        ax.axvspan(AlarmDataTrueAlarms.loc[index,'Alarm_Start_Time'],AlarmDataTrueAlarms.loc[index,'Alarm_Stop_Time'], alpha=0.2, color='yellow')
+
+
+#minutes = plt.dates.MinuteLocator()      
+#ax.xaxis.set_minor_locator(minutes)
+
+for index,value in cdatach1.iterrows():
+    xmax = cdatach1.loc[index,'Inserted_Date']
+    ymax = cdatach1.loc[index,'stat']
+    cycle = xmax - xmin
+    if(ymin != ymax):
+      if (((ymin == 1)&(ymax == 0)) & (cycle < datetime.timedelta(minutes = 120))):
+        cycletimech1.append(cycle)
+        ax.axvspan(xmin,xmax, alpha=0.2, color='yellow')
+      xmin = cdatach1.loc[index,'Inserted_Date']
+      ymin = cdatach1.loc[index,'stat']
+
+xmin = cdatach2.loc[0,'Inserted_Date']
+ymin = cdatach2.loc[0,'stat']
+cycletimech2 = []
+
+for index,value in cdatach2.iterrows():
+    xmax = cdatach2.loc[index,'Inserted_Date']
+    ymax = cdatach2.loc[index,'stat']
+    cycle = xmax - xmin
+    if(ymin != ymax):
+      if (((ymin == 1)&(ymax == 0)) & (cycle < datetime.timedelta(minutes = 120))):
+        cycletimech2.append(cycle)
+        ax.axvspan(xmin,xmax, alpha=0.2, color='green')
+      xmin = cdatach2.loc[index,'Inserted_Date']
+      ymin = cdatach2.loc[index,'stat']
+
+plt.pyplot.plot(dfs1['Inserted Date'],dfs1['Parameter Value'])    
+
+#for index,value in dfs7.iterrows():
+# plt.pyplot.scatter(dfs7.loc[index,'Inserted Date'],dfs7.loc[index,'Parameter Value'],s = 1,color = 'red');
+#fig,ax = plt.pyplot.subplots()
+texts = []     
+for index,value in AlarmDataTrueAlarmsch1ch2.iterrows():
+        ax.axvspan(AlarmDataTrueAlarmsch1ch2.loc[index,'Alarm_Start_Time'],AlarmDataTrueAlarmsch1ch2.loc[index,'Alarm_Stop_Time'], alpha=0.2, color='red')
+        texts.append(ax.text(AlarmDataTrueAlarmsch1ch2.loc[index,'Alarm_Start_Time'],1,AlarmDataTrueAlarmsch1ch2.loc[index,'Alarm_Name']))
+adjust_text(texts, only_move='y', arrowprops=dict(arrowstyle="->", color='r', lw=0.5))
+ax.set_xlim(['2018-05-01','2018-05-18'])
 #%%
 def subtime(x):
     return (x - datetime.datetime(2018,4,1)).total_seconds()
@@ -214,6 +284,7 @@ def subtime(x):
 Timelist = []
 
 AlarmDataTrueAlarms = AlarmData[AlarmData['T/F'] == 'T']
+AlarmDataTrueAlarmsch1ch2 = AlarmDataTrueAlarms[AlarmDataTrueAlarms['Chamber']!= 'CH3']
 
 i = 0
 for index,value in AlarmDataTrueAlarms.iterrows():
